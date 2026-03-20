@@ -1,0 +1,12 @@
+streamlit
+sentence-transformers
+faiss-cpu
+datasets
+numpy
+moviepy
+librosa
+soundfile
+torch
+openai-whisper
+soundfile
+ffmpeg-python
