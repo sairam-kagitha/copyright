@@ -1,38 +1,110 @@
 # ==========================================
 # AI-Based Semantic Copyright Detection
-# Production Version (Professional UI)
+# Clean Professional UI Version
 # ==========================================
 
-import streamlit as st
-import whisper
-import numpy as np
+import os
+import tempfile
+
 import faiss
 import joblib
-import tempfile
-import os
-import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
+import streamlit as st
+import whisper
 from sentence_transformers import SentenceTransformer
+
 from utils.audio_utils import extract_audio_from_video
+
 # ------------------------------------------
 # PAGE CONFIG
 # ------------------------------------------
 
-st.set_page_config(
-    page_title="Semantic Copyright Detection",
-    layout="wide"
-)
-
-st.title("🎧 AI-Based Semantic Copyright Detection")
-st.markdown("Upload an audio or video file to detect semantic copyright similarity.")
+st.set_page_config(page_title="Semantic Copyright Detection", layout="wide")
 
 # ------------------------------------------
-# LOAD MODELS (CACHED FOR PERFORMANCE)
+# UI STYLING
+# ------------------------------------------
+
+st.markdown(
+    """
+<style>
+
+/* Background */
+[data-testid="stAppViewContainer"]{
+background: linear-gradient(135deg,#0f2027,#203a43,#2c5364);
+color:white;
+}
+
+/* Title */
+h1{
+text-align:center;
+font-size:40px;
+color:#00FFD1;
+}
+
+/* Section headers */
+h2,h3{
+color:#FFD369;
+}
+
+/* Uploader */
+[data-testid="stFileUploader"]{
+border:2px dashed #00FFD1;
+padding:20px;
+border-radius:10px;
+background-color:rgba(255,255,255,0.05);
+}
+
+/* Metric values */
+[data-testid="stMetricValue"]{
+color:white;
+font-size:30px;
+font-weight:bold;
+}
+
+[data-testid="stMetricLabel"]{
+color:#FFD369;
+}
+
+/* Result boxes */
+.success-box{
+background:#1d5b3a;
+padding:20px;
+border-radius:10px;
+border:2px solid #00ff7f;
+text-align:center;
+font-size:22px;
+font-weight:bold;
+}
+
+.error-box{
+background:#5b1d1d;
+padding:20px;
+border-radius:10px;
+border:2px solid #ff4c4c;
+text-align:center;
+font-size:22px;
+font-weight:bold;
+}
+
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+
+st.title("🎧 AI-Based Semantic Copyright Detection")
+st.markdown("Upload audio or video to detect semantic copyright similarity.")
+
+# ------------------------------------------
+# LOAD MODELS
 # ------------------------------------------
 
 
 @st.cache_resource
 def load_resources():
+
     whisper_model = whisper.load_model("base")
 
     sbert_model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -46,6 +118,7 @@ def load_resources():
 
     return whisper_model, sbert_model, index, clf, scaler, transcripts
 
+
 whisper_model, sbert_model, index, clf, scaler, transcripts = load_resources()
 
 TOP_K = 6
@@ -55,20 +128,24 @@ TOP_K = 6
 # ------------------------------------------
 
 uploaded_file = st.file_uploader(
-    "Upload Audio / Video File",
-    type=["wav", "mp3", "m4a", "mp4"]
+    "Upload Audio / Video File", type=["wav", "mp3", "m4a", "mp4"]
 )
 
-if uploaded_file is not None:
+# ------------------------------------------
+# MAIN PIPELINE
+# ------------------------------------------
 
-    # Save temporary file
+if uploaded_file is not None:
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         tmp.write(uploaded_file.read())
         temp_path = tmp.name
 
     file_extension = uploaded_file.name.split(".")[-1].lower()
 
-    # If video → extract audio
+    # --------------------------------------
+    # VIDEO OR AUDIO PREVIEW
+    # --------------------------------------
+
     if file_extension == "mp4":
         st.video(temp_path)
         audio_path = extract_audio_from_video(temp_path)
@@ -80,7 +157,7 @@ if uploaded_file is not None:
     # TRANSCRIPTION
     # --------------------------------------
 
-    with st.spinner("Transcribing audio..."):
+    with st.spinner("🧠 AI analyzing speech..."):
         result = whisper_model.transcribe(audio_path)
         transcript = result["text"]
 
@@ -91,11 +168,8 @@ if uploaded_file is not None:
     # EMBEDDING + FAISS SEARCH
     # --------------------------------------
 
-    with st.spinner("Computing similarity..."):
-        query_embedding = sbert_model.encode(
-            [transcript],
-            normalize_embeddings=True
-        )
+    with st.spinner("🔍 Computing similarity..."):
+        query_embedding = sbert_model.encode([transcript], normalize_embeddings=True)
 
         D, I = index.search(query_embedding, TOP_K)
 
@@ -114,22 +188,34 @@ if uploaded_file is not None:
         confidence = clf.predict_proba(X_input)[0][1]
 
     # --------------------------------------
-    # RESULT SECTION
+    # METRICS
     # --------------------------------------
 
     st.subheader("🔎 Detection Result")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
+
+    col1.metric("🧠 Confidence Score", f"{confidence:.4f}")
+    col2.metric("🔗 Top Similarity", f"{sims[0]:.4f}")
+
+    # --------------------------------------
+    # RESULT BANNER
+    # --------------------------------------
 
     if prediction == 1:
-        col1.error("🚨 Copyright Detected")
+        st.markdown(
+            '<div class="error-box">🚨 COPYRIGHT DETECTED</div>', unsafe_allow_html=True
+        )
     else:
-        col1.success("✅ No Copyright Detected")
+        st.markdown(
+            '<div class="success-box">✅ NO COPYRIGHT DETECTED</div>',
+            unsafe_allow_html=True,
+        )
 
-    col2.metric("Confidence Score", f"{confidence:.4f}")
-    col3.metric("Top Similarity", f"{sims[0]:.4f}")
+    # --------------------------------------
+    # RISK LEVEL
+    # --------------------------------------
 
-    # Risk Interpretation
     if confidence > 0.9:
         risk = "Very High Risk"
     elif confidence > 0.7:
@@ -142,28 +228,47 @@ if uploaded_file is not None:
     st.info(f"📊 Risk Level: **{risk}**")
 
     # --------------------------------------
-    # MATCHED DATASET SENTENCES
+    # MATCHED SENTENCES
     # --------------------------------------
 
     st.subheader("📚 Top Matched Dataset Sentences")
 
     for rank in range(5):
-        st.markdown(f"**Rank {rank+1} — Similarity: {sims[rank]:.4f}**")
-        st.write(transcripts[indices[rank]])
-        st.divider()
+        st.markdown(
+            f"""
+        <div style="
+        background-color:rgba(255,255,255,0.05);
+        padding:15px;
+        border-radius:8px;
+        margin-bottom:10px">
+
+        <b>Rank {rank + 1} — Similarity: {sims[rank]:.4f}</b><br>
+        {transcripts[indices[rank]]}
+
+        </div>
+        """,
+            unsafe_allow_html=True,
+        )
 
     # --------------------------------------
-    # EXPLAINABLE FEATURE VISUALIZATION
+    # FEATURE VISUALIZATION
     # --------------------------------------
 
-    st.subheader("📈 Decision Feature Visualization")
+    st.subheader("📈 Feature Contribution")
 
     feature_names = ["s1", "s2", "s3", "s4", "s5", "mean", "std", "gap"]
 
-    fig, ax = plt.subplots()
-    ax.bar(feature_names, feature_vector)
-    ax.set_title("Feature Contribution Pattern")
-    plt.xticks(rotation=45)
+    fig, ax = plt.subplots(figsize=(6, 3))
+
+    ax.bar(feature_names, feature_vector, color="#00FFD1")
+
+    ax.set_facecolor("#1f3b4d")
+    fig.patch.set_facecolor("#1f3b4d")
+
+    ax.tick_params(colors="white")
+    ax.set_title("Model Feature Pattern", color="white")
+
+    plt.xticks(rotation=30)
 
     st.pyplot(fig)
 
